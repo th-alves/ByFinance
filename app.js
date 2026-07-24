@@ -3,6 +3,23 @@
 // All data persisted in LocalStorage
 // ============================================================
 
+// ===================== SEGURANÇA: escape de HTML =====================
+// Qualquer texto que veio de um campo digitado pelo usuário (ticker,
+// segmento manual etc.) e vai ser inserido via innerHTML PRECISA passar
+// por aqui antes. Sem isso, alguém poderia digitar algo como
+// "<img src=x onerror=...>" num campo de texto livre e esse código HTML
+// seria executado de verdade quando a tela renderizasse — um XSS
+// armazenado. textContent/innerText já escapam sozinhos; o problema é
+// só quando o valor entra numa template string que vira innerHTML.
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // ===================== CONSTANTS =====================
 const MONTH_NAMES = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -122,7 +139,12 @@ function traduzErroSupabase(msg) {
     if (!msg) return 'Ocorreu um erro. Tente novamente.';
     if (msg.includes('Invalid login credentials')) return 'E-mail ou senha incorretos.';
     if (msg.includes('already registered') || msg.includes('already been registered')) return 'Este e-mail já está cadastrado.';
-    if (msg.includes('Password should be')) return 'A senha precisa ter pelo menos 6 caracteres.';
+    if (msg.includes('Password should be')) {
+        const match = msg.match(/at least (\d+) character/i);
+        return match
+            ? `A senha precisa ter pelo menos ${match[1]} caracteres.`
+            : 'A senha não atende aos requisitos mínimos de segurança.';
+    }
     if (msg.includes('Unable to validate email')) return 'E-mail inválido.';
     return msg;
 }
@@ -149,8 +171,8 @@ async function handleAuthSubmit() {
             showAuthError('As senhas não coincidem.');
             return;
         }
-        if (password.length < 6) {
-            showAuthError('A senha precisa ter pelo menos 6 caracteres.');
+        if (password.length < 8) {
+            showAuthError('A senha precisa ter pelo menos 8 caracteres.');
             return;
         }
     }
@@ -1585,9 +1607,9 @@ function renderAtivos() {
         .slice()
         .sort((a, b) => a.ticker.localeCompare(b.ticker))
         .map(a => `<tr>
-            <td><strong>${a.ticker}</strong></td>
-            <td><span class="badge ${a.tipo === 'FII' ? 'badge-green' : 'badge-blue'}">${a.tipo}</span></td>
-            <td>${a.segmento}</td>
+            <td><strong>${escapeHtml(a.ticker)}</strong></td>
+            <td><span class="badge ${a.tipo === 'FII' ? 'badge-green' : 'badge-blue'}">${escapeHtml(a.tipo)}</span></td>
+            <td>${escapeHtml(a.segmento)}</td>
             <td>${a.quantidade ?? '—'}</td>
             <td>${a.valorInvestido ? formatCurrency(a.valorInvestido) : '—'}</td>
             <td>
@@ -1727,9 +1749,10 @@ function renderDonutWithLegend(canvasId, legendId, grupos) {
     legendEl.innerHTML = labels.map((label, i) => {
         const color = PIE_COLORS[i % PIE_COLORS.length];
         const pct = total > 0 ? (values[i] / total) * 100 : 0;
+        const safeLabel = escapeHtml(label);
         return `<div class="diversificacao-legend-item">
             <span class="chart-legend-dot" style="background:${color}"></span>
-            <span class="diversificacao-legend-label" title="${label}">${label}</span>
+            <span class="diversificacao-legend-label" title="${safeLabel}">${safeLabel}</span>
             <span class="diversificacao-legend-pct">${formatPercent(pct)}</span>
         </div>`;
     }).join('');
